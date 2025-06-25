@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"fmt"
@@ -7,23 +7,23 @@ import (
 )
 
 type Config struct {
-	Server ServerConfig `json:"server"`
-	RTU    RtuConfig    `json:"rtu"`
-	CRM    CrmConfig    `json:"amo_crm"`
-	Debug  bool         `json:"debug"`
+	Server ServerConfig `json:"server" mapstructure:"server"`
+	RTU    RtuConfig    `json:"rtu" mapstructure:"rtu"`
+	CRM    CrmConfig    `json:"amo_crm" mapstructure:"amo_crm"`
+	Debug  bool         `json:"debug" mapstructure:"debug"`
 }
 
 type ServerConfig struct {
-	ServerPort     int           `json:"port"`
-	RequestTimeout time.Duration `json:"request_timeout"`
+	ServerPort     int           `json:"port" mapstructure:"port"`
+	RequestTimeout time.Duration `json:"request_timeout" mapstructure:"request_timeout"`
 }
 
 type RtuConfig struct {
-	Host string `json:"host"`
+	Host string `json:"host" mapstructure:"host"`
 }
 
 type CrmConfig struct {
-	ServiceCode string `json:"service_code"`
+	ServiceCode string `json:"service_code" mapstructure:"service_code"`
 }
 
 func LoadConfig() *Config {
