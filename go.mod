@@ -3,6 +3,8 @@ module github.com/crafty-ezhik/amocrmproxy
 go 1.24.2
 
 require (
+	github.com/go-chi/chi/v5 v5.2.2
+	github.com/go-chi/cors v1.2.1
 	github.com/spf13/viper v1.20.1
 	go.uber.org/zap v1.27.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
