@@ -371,7 +371,7 @@ func (h *appHandlers) GetToken() http.HandlerFunc {
 			temp[items[0]] = items[1]
 		}
 
-		temp["redirect_uri"] = fmt.Sprintf("https://%s/callback/amo", h.serverHost)
+		temp["redirect_uri"] = fmt.Sprintf("https://%s/crmproxy/callback/amo", h.serverHost)
 
 		h.log.Debug("Marshalling newBody")
 		jsonData, err := json.Marshal(temp)
