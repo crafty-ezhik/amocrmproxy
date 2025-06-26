@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"github.com/crafty-ezhik/amocrmproxy/config"
@@ -12,6 +13,7 @@ import (
 	"go.uber.org/zap"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -64,7 +66,9 @@ func NewAppHandlers(log *zap.Logger, cfg *config.Config, ec *email.EmailClient) 
 
 func (h *appHandlers) OrderingCallback() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		h.log.Info("OrderingCallback")
+		h.log.Info("Ordering callback")
+
+		// Parse and unmarshalling body
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			h.log.Error("Error reading body", zap.Error(err))
@@ -73,14 +77,104 @@ func (h *appHandlers) OrderingCallback() http.HandlerFunc {
 		}
 		h.log.Debug("Body", zap.ByteString("body", body))
 
-		h.log.Debug("Send request to RTU")
-		url := fmt.Sprintf("https://%s/call", h.rtuAddr)
-		resp := utils.MakeRequest(r, h.insecureClient, http.MethodPost, url, body)
+		h.log.Debug("Start unmarshalling body in to map")
+		var jsonData utils.AnyMap
+		err = json.Unmarshal(body, &jsonData)
+		if err != nil {
+			h.log.Error("Error unmarshalling body", zap.Error(err))
+			http.Error(w, "Error unmarshalling body", http.StatusBadRequest)
+			return
+		}
+		h.log.Debug("Unmarshalling body in to map successfully")
+
+		// Get Body data
+		h.log.Debug("Get data from request body")
+		rawUserID, ok := jsonData["user"].(float64)
+		if !ok {
+			h.log.Error("Error converting the interface to the float64 type ", zap.Error(err))
+			http.Error(w, "Error converting the interface to the float64 type", http.StatusBadRequest)
+			return
+		}
+		userID := strconv.FormatFloat(rawUserID, 'f', 0, 64)
+		destNumber, ok := jsonData["destination"].(string)
+		if !ok {
+			h.log.Error("Error converting the interface to the string type ", zap.Error(err))
+			http.Error(w, "Error converting the interface to the string type ", http.StatusBadRequest)
+			return
+		}
+		h.log.Debug("Get data from request body successfully")
+
+		// Get Domain
+		h.log.Debug("Get domain from Authorization header")
+		domain, err := getDomain(r)
+		if err != nil {
+			h.log.Error("Error getting domain", zap.Error(err))
+			http.Error(w, "Error getting domain", http.StatusBadRequest)
+			return
+		}
+		h.log.Debug("Get domain from Authorization header successfully")
+
+		// Get user info from RTU
+		h.log.Debug("Sending request to RTU for get user info")
+		url := fmt.Sprintf("https://%s/user?user_id=%s", h.rtuAddr, userID)
+		resp := utils.MakeRequest(r, h.insecureClient, http.MethodGet, url, nil)
 		h.log.Debug("Response body", zap.ByteString("body", resp.Body))
 
-		h.log.Info("Creating user in RTU successfully")
-		utils.SendResponse(w, resp)
+		type userData struct {
+			List []struct {
+				Email       string `json:"email"`
+				PhoneNumber string `json:"sipLogin"`
+				Password    string `json:"sipPassword"`
+			} `json:"list"`
+		}
+
+		var data userData
+		err = json.Unmarshal(resp.Body, &data)
+		if err != nil {
+			h.log.Error("Error unmarshalling body", zap.Error(err))
+			http.Error(w, "Error unmarshalling body", http.StatusBadRequest)
+			return
+		}
+
+		srcNumber := data.List[0].PhoneNumber
+		userLogin := data.List[0].Email
+		userPassword := data.List[0].Password
+		h.log.Debug("Sending request to RTU for get user info successfully")
+
+		// Sending request to creating ordering callback
+		h.log.Debug("Sending request to creating ordering callback")
+		status, err := sendOrderingCallbackRequest(destNumber, srcNumber, userLogin, userPassword, domain)
+		if err != nil {
+			h.log.Error("Error getting user info", zap.Error(err))
+			http.Error(w, "Error getting user info", http.StatusBadRequest)
+			return
+		}
+		if status != http.StatusOK {
+			utils.SendResponse(w, &utils.Response{
+				Body:   nil,
+				Status: 500,
+				Error:  err,
+			})
+		}
+
+		h.log.Debug("Sending request to creating ordering callback successfully")
+		h.log.Info("Ordering callback successfully")
+		utils.SendResponse(w, &utils.Response{
+			Body:   []byte("{\"code\": 200, \"reason\":\"OK\"}"),
+			Status: status,
+			Error:  nil,
+		})
 	}
+}
+
+func sendOrderingCallbackRequest(destNumber, srcNumber, userLogin, userPassword, domain string) (int, error) {
+	// Инициализировать структуры
+
+	// Сделать запрос
+
+	// Отдать ответ
+
+	return http.StatusOK, nil
 }
 
 func (h *appHandlers) GetAuthCode() http.HandlerFunc {
@@ -440,4 +534,14 @@ func trimPath(path string) string {
 	pathSlice := strings.Split(path, "/")
 	pathSlice = pathSlice[2:]
 	return strings.Join(pathSlice, "/")
+}
+
+func getDomain(r *http.Request) (string, error) {
+	credential := strings.TrimPrefix(r.Header.Get(utils.HeaderAuthorization), "Basic ")
+	decoded, err := base64.URLEncoding.DecodeString(credential)
+	if err != nil {
+		return "", err
+	}
+	credSlice := strings.Split(string(decoded), ":")
+	return credSlice[0], nil
 }
