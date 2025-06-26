@@ -10,6 +10,9 @@ import (
 //
 // Принимает chi.Mux и интерфейс handlers.AppHandlers
 func InitRoutes(r *chi.Mux, h handlers.AppHandlers) {
+	// Получение кода авторизации
+	r.Get("/callback/amo", h.GetAuthCode())
+
 	r.Route("/{crm_address}", func(r chi.Router) {
 		// Добавление адреса crm системы в контекст
 		r.Use(h.AddAddressToCtx)
@@ -25,12 +28,13 @@ func InitRoutes(r *chi.Mux, h handlers.AppHandlers) {
 		r.Get("/user", h.GetUserFromRTU())
 
 		r.Route("/api/v4", func(r chi.Router) {
+			r.Get("/test/{id}/lonk", h.TestHandler())
 			r.Get("/contacts", h.GetContacts())
-			r.Get("/companies", h.CreateCompanies())
+			r.Get("/companies", h.GetCompanies())
 			r.Post("/calls", h.EndCall())
 			r.Post("/contacts", h.CreateContacts())
 			r.Post("/leads/unsorted/sip", h.AddUnsorted())
-			r.Post("/leads/unsorted/{entity_id}/link", h.LinkUnsorted())
+			r.Post("/leads/{entity_id}/link", h.LinkUnsorted())
 		})
 
 	})
