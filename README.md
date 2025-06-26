@@ -51,7 +51,10 @@
     "request_timeout": "10s"
   },
   "rtu": {
-    "host": "rtu.amocrm.ru"
+    "host": "rtu.amocrm.ru",
+    "crm_api_port": 1234,
+    "client_api_port": 1234,
+    "admin_api_port": 1234
   },
   "amo_crm": {
     "service_code": "код_интеграции"
