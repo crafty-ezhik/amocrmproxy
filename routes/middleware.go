@@ -18,6 +18,7 @@ func InitMiddleware(r *chi.Mux, timeout time.Duration) {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RequestID)
+	r.Use(middleware.Heartbeat("/crmproxy/ping"))
 	r.Use(middleware.AllowContentType("application/json", "application/x-www-form-urlencoded"))
 	r.Use(middleware.Timeout(timeout))
 	r.Use(cors.Handler(cors.Options{
