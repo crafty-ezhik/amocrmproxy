@@ -21,6 +21,6 @@ COPY --from=builder /app/bin/app /
 
 COPY ./config.json ./
 
-EXPOSE 8081
+EXPOSE 8089
 
 CMD ["/app"]
