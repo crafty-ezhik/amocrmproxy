@@ -75,7 +75,7 @@ func (h *appHandlers) OrderingCallback() http.HandlerFunc {
 
 		h.log.Debug("Send request to RTU")
 		url := fmt.Sprintf("https://%s/call", h.rtuAddr)
-		resp := utils.MakeRequest(r, h.client, http.MethodPost, url, body)
+		resp := utils.MakeRequest(r, h.insecureClient, http.MethodPost, url, body)
 		h.log.Debug("Response body", zap.ByteString("body", resp.Body))
 
 		h.log.Info("Creating user in RTU successfully")
