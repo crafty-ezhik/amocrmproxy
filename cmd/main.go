@@ -37,7 +37,8 @@ func main() {
 	log.Info("Starting proxy server on port: " + strconv.Itoa(cfg.Server.ServerPort))
 	err := server.ListenAndServe()
 	if err != nil {
-		log.Error("Error starting server")
+		log.Error("Error starting server.")
+		panic(err)
 	}
 
 }
