@@ -18,6 +18,9 @@ func InitRoutes(r *chi.Mux, h handlers.AppHandlers) {
 		r.Post("/user", h.CreateUserInRTU())
 		r.Get("/user", h.GetUserFromRTU())
 
+		// Заказ обратного звонка
+		r.Post("/call", h.OrderingCallback())
+
 		r.Route("/{crm_address}", func(r chi.Router) {
 			// Добавление адреса crm системы в контекст
 

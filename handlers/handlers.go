@@ -28,6 +28,7 @@ type AppHandlers interface {
 	GetToken() http.HandlerFunc
 	EndCall() http.HandlerFunc
 	GetAuthCode() http.HandlerFunc
+	OrderingCallback() http.HandlerFunc
 }
 
 type appHandlers struct {
@@ -59,6 +60,27 @@ func NewAppHandlers(log *zap.Logger, cfg *config.Config, ec *email.EmailClient) 
 		ec:             ec,
 	}
 	return handlers
+}
+
+func (h *appHandlers) OrderingCallback() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		h.log.Info("OrderingCallback")
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			h.log.Error("Error reading body", zap.Error(err))
+			http.Error(w, "Error reading body", http.StatusBadRequest)
+			return
+		}
+		h.log.Debug("Body", zap.ByteString("body", body))
+
+		h.log.Debug("Send request to RTU")
+		url := fmt.Sprintf("https://%s/call", h.rtuAddr)
+		resp := utils.MakeRequest(r, h.client, http.MethodPost, url, body)
+		h.log.Debug("Response body", zap.ByteString("body", resp.Body))
+
+		h.log.Info("Creating user in RTU successfully")
+		utils.SendResponse(w, resp)
+	}
 }
 
 func (h *appHandlers) GetAuthCode() http.HandlerFunc {
