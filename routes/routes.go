@@ -14,6 +14,10 @@ func InitRoutes(r *chi.Mux, h handlers.AppHandlers) {
 	r.Route("/crmproxy", func(r chi.Router) {
 		r.Get("/callback/amo", h.GetAuthCode())
 
+		// Получение и создание пользователей в РТУ Сател
+		r.Post("/user", h.CreateUserInRTU())
+		r.Get("/user", h.GetUserFromRTU())
+
 		r.Route("/{crm_address}", func(r chi.Router) {
 			// Добавление адреса crm системы в контекст
 
@@ -24,10 +28,6 @@ func InitRoutes(r *chi.Mux, h handlers.AppHandlers) {
 
 			// Отправка уведомления о звонке
 			r.Post("/api/v2/events", h.CreateCallEvents())
-
-			// Получение и создание пользователей в РТУ Сател
-			r.Post("/user", h.CreateUserInRTU())
-			r.Get("/user", h.GetUserFromRTU())
 
 			r.Route("/api/v4", func(r chi.Router) {
 				r.Get("/contacts", h.GetContacts())
