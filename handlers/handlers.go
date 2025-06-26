@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/crafty-ezhik/amocrmproxy/config"
+	"github.com/crafty-ezhik/amocrmproxy/utils"
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 	"io"
@@ -23,7 +24,7 @@ type AppHandlers interface {
 	LinkUnsorted() http.HandlerFunc
 	AddUnsorted() http.HandlerFunc
 	CreateCallEvents() http.HandlerFunc
-	CreateCompanies() http.HandlerFunc
+	GetCompanies() http.HandlerFunc
 	GetContacts() http.HandlerFunc
 	GetToken() http.HandlerFunc
 	EndCall() http.HandlerFunc
@@ -37,6 +38,7 @@ type appHandlers struct {
 	insecureClient *http.Client
 	rtuAddr        string
 	serviceCode    string
+	serverHost     string
 }
 
 func NewAppHandlers(log *zap.Logger, cfg *config.Config) AppHandlers {
@@ -52,10 +54,12 @@ func NewAppHandlers(log *zap.Logger, cfg *config.Config) AppHandlers {
 		},
 		rtuAddr:     cfg.RTU.Host,
 		serviceCode: cfg.CRM.ServiceCode,
+		serverHost:  cfg.Server.Host,
 	}
 	return handlers
 }
 
+// TODO: Скорее всего надо удалить, ибо домен я передаю другим образом через r.URL.Path
 func (h *appHandlers) AddAddressToCtx(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		crmAddress := chi.URLParam(r, "crm_address")
@@ -66,103 +70,50 @@ func (h *appHandlers) AddAddressToCtx(next http.Handler) http.Handler {
 
 func (h *appHandlers) CreateContacts() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		fmt.Println(string(body))
-		fmt.Println("Запрос создания контакта")
-
-		req, _ := http.NewRequest("POST", "https://mmvamobizneslinecom.amocrm.ru/api/v4/contacts", bytes.NewBuffer(body))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", r.Header.Get("Authorization"))
-
-		client := &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true,
-				},
-			},
-		}
-
-		resp, err := client.Do(req)
+		h.log.Info("Creating Contacts")
+		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			slog.Error("Error fetching contacts", err.Error())
+			h.log.Error("Error reading body", zap.Error(err))
+			http.Error(w, "Error reading body", http.StatusBadRequest)
+			return
 		}
-		defer resp.Body.Close()
+		h.log.Debug("Body", zap.ByteString("body", body))
 
-		fmt.Println("response Status:", resp.Status)
+		url := fmt.Sprintf("https:/%s", r.URL.Path)
+		h.log.Debug("Request URL", zap.String("url", url))
 
-		respBody, _ := io.ReadAll(resp.Body)
-		fmt.Println(string(respBody))
+		resp := utils.MakeRequest(r, h.client, http.MethodPost, url, body)
+		h.log.Debug("Response body", zap.ByteString("body", resp.Body))
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(resp.StatusCode)
-		w.Write(respBody)
+		h.log.Info("Creating contacts successfully")
+		utils.SendResponse(w, resp)
 	}
 }
 
 func (h *appHandlers) CreateUserInRTU() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {}
-}
-
-func (h *appHandlers) GetUserFromRTU() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println("Метод запроса: " + r.Method)
-		fmt.Println("Параметры запроса: " + r.URL.Query().Get("user_id"))
-		fmt.Println("парсинг и маршалинг в мапу")
+		h.log.Info("Creating User in RTU")
 
-		client := &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true,
-				},
-			},
-		}
-
-		userID := r.URL.Query().Get("user_id")
-		if userID != "" && r.Method == http.MethodGet {
-			req, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("https://78.155.208.225:8431/user?user_id=%s", userID), nil)
-			req.Header.Set("Content-Type", "application/json")
-			fmt.Println("Заголовок авторизации: " + r.Header.Get("Authorization"))
-			req.Header.Set("Authorization", r.Header.Get("Authorization"))
-
-			resp, err := client.Do(req)
-			if err != nil {
-				slog.Error("Error fetching  user with ID:", userID)
-			}
-
-			respBody, _ := io.ReadAll(resp.Body)
-			defer resp.Body.Close()
-
-			w.WriteHeader(resp.StatusCode)
-			w.Write(respBody)
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			h.log.Error("Error reading body", zap.Error(err))
+			http.Error(w, "Error reading body", http.StatusBadRequest)
 			return
 		}
-		if r.Method == http.MethodGet {
-			req, _ := http.NewRequest(http.MethodGet, "https://78.155.208.225:8431/user", nil)
-			req.Header.Set("Content-Type", "application/json")
-			fmt.Println("Заголовок авторизации: " + r.Header.Get("Authorization"))
-			req.Header.Set("Authorization", r.Header.Get("Authorization"))
-
-			resp, err := client.Do(req)
-			if err != nil {
-				slog.Error("Error fetching  users ")
-			}
-
-			respBody, _ := io.ReadAll(resp.Body)
-			defer resp.Body.Close()
-
-			w.WriteHeader(resp.StatusCode)
-			w.Write(respBody)
-			return
-		}
-
-		body, _ := io.ReadAll(r.Body)
 		defer r.Body.Close()
-		fmt.Println("Запрос от amoCRM: " + string(body))
+		h.log.Debug("Body", zap.ByteString("body", body))
 
-		var jsonData map[string]interface{}
-		_ = json.Unmarshal(body, &jsonData)
+		h.log.Debug("Start unmarshalling body in to map")
+		var jsonData utils.AnyMap
+		err = json.Unmarshal(body, &jsonData)
+		if err != nil {
+			h.log.Error("Error unmarshalling body", zap.Error(err))
+			http.Error(w, "Error unmarshalling body", http.StatusBadRequest)
+			return
+		}
+		h.log.Debug("Unmarshalling body in to map successfully")
 
-		reqBody := map[string]interface{}{
+		reqBody := utils.AnyMap{
 			"id":          jsonData["id"],
 			"phoneNumber": jsonData["phoneNumber"],
 			"email":       jsonData["email"],
@@ -170,129 +121,156 @@ func (h *appHandlers) GetUserFromRTU() http.HandlerFunc {
 			"sipLogin":    jsonData["sipLogin"],
 			"sipPassword": jsonData["sipPassword"],
 		}
-
-		newBody, _ := json.Marshal(reqBody)
-		fmt.Println("Новое тело запроса для RTU: " + string(newBody))
-
-		fmt.Println("Формируем запрос в РТУ")
-		req, _ := http.NewRequest(http.MethodPost, "https://78.155.208.225:8431/user", bytes.NewBuffer(newBody))
-		req.Header.Set("Content-Type", "application/json")
-		fmt.Println("Заголовок авторизации: " + r.Header.Get("Authorization"))
-		req.Header.Set("Authorization", r.Header.Get("Authorization"))
-
-		fmt.Println("Делаем запрос к РТУ")
-
-		resp, err := client.Do(req)
+		h.log.Debug("Marshalling newBody")
+		newBody, err := json.Marshal(reqBody)
 		if err != nil {
-			fmt.Println(err)
+			h.log.Error("Error marshalling newBody", zap.Error(err))
+			http.Error(w, "Error marshalling newBody", http.StatusBadRequest)
+			return
+		}
+		h.log.Debug("New body for RTU", zap.ByteString("body", newBody))
+
+		h.log.Debug("Send request to RTU")
+		url := fmt.Sprintf("https://%s/user", h.rtuAddr)
+		resp := utils.MakeRequest(r, h.client, http.MethodPost, url, newBody)
+		h.log.Debug("Response body", zap.ByteString("body", resp.Body))
+
+		h.log.Info("Creating user in RTU successfully")
+		utils.SendResponse(w, resp)
+	}
+}
+
+func (h *appHandlers) GetUserFromRTU() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		h.log.Debug("Getting User from RTU")
+
+		userID := r.URL.Query().Get("user_id")
+		if userID != "" {
+			h.log.Debug("Send request to RTU")
+			url := fmt.Sprintf("https://%s/user?user_id=%s", h.rtuAddr, userID)
+			resp := utils.MakeRequest(r, h.insecureClient, http.MethodGet, url, nil)
+			h.log.Debug("Response body", zap.ByteString("body", resp.Body))
+			utils.SendResponse(w, resp)
+			return
 		}
 
-		respBody, _ := io.ReadAll(resp.Body)
-		fmt.Println("Тело ответа от РТУ:" + string(respBody))
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write(respBody)
-		/*
-			"id": "1",
-			"phoneNumber": "9976",
-			"email": "ivanov@test.org",
-			"name": "Иван Иванов",
-			"sipLogin": "9976",
-			"sipPassword": "Yk1jbTmW"
-		*/
+		h.log.Debug("Send request to RTU")
+		url := fmt.Sprintf("https://%s/user", h.rtuAddr)
+		resp := utils.MakeRequest(r, h.insecureClient, http.MethodGet, url, nil)
+		h.log.Debug("Response body", zap.ByteString("body", resp.Body))
+		utils.SendResponse(w, resp)
 	}
 }
 
 func (h *appHandlers) LinkUnsorted() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println("Запрос на привязку несортированного звонка")
-		entityID := chi.URLParam(r, "id")
+		h.log.Info("Request to bind an unsorted call")
+		entityID := chi.URLParam(r, "entity_id")
+		h.log.Debug("EntityID: ", zap.String("entityID", entityID))
 
-		token := r.Header.Get("Authorization")
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			h.log.Error("Error reading body", zap.Error(err))
+			http.Error(w, "Error reading body", http.StatusBadRequest)
+			return
+		}
+		defer r.Body.Close()
+		h.log.Debug("Body", zap.ByteString("body", body))
 
-		body, _ := io.ReadAll(r.Body)
+		h.log.Debug("Start unmarshalling body in to map")
+		var jsonData []utils.AnyMap
+		err = json.Unmarshal(body, &jsonData)
+		if err != nil {
+			h.log.Error("Error unmarshalling body", zap.Error(err))
+			http.Error(w, "Error unmarshalling body", http.StatusBadRequest)
+			return
+		}
+		h.log.Debug("Unmarshalling body in to map successfully")
 
-		var jsonData []map[string]interface{}
-		_ = json.Unmarshal(body, &jsonData)
-
-		reqBody := map[string]interface{}{
-			"link": map[string]interface{}{
+		reqBody := utils.AnyMap{
+			"link": utils.AnyMap{
 				"entity_id":   jsonData[0]["to_entity_id"],
 				"entity_type": "leads",
 			},
 		}
 
-		bytesBody, _ := json.Marshal(reqBody)
-		fmt.Println(string(bytesBody))
+		h.log.Debug("Marshalling newBody")
+		bytesBody, err := json.Marshal(reqBody)
+		if err != nil {
+			h.log.Error("Error marshalling newBody", zap.Error(err))
+			http.Error(w, "Error marshalling newBody", http.StatusBadRequest)
+			return
+		}
+		h.log.Debug("New body: ", zap.ByteString("body", bytesBody))
 
-		url := fmt.Sprintf("https://mmvamobizneslinecom.amocrm.ru/api/v4/leads/unsorted/%s/link", entityID)
-		req, _ := http.NewRequest("POST", url, bytes.NewBuffer(bytesBody))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", token)
+		h.log.Debug("Send request to CRM")
+		url := fmt.Sprintf("https:/%s", r.URL.Path)
+		resp := utils.MakeRequest(r, h.client, http.MethodPost, url, bytesBody)
+		h.log.Debug("Response body", zap.ByteString("body", resp.Body))
 
-		resp, _ := http.DefaultClient.Do(req)
-		defer resp.Body.Close()
-
-		respBody, _ := io.ReadAll(resp.Body)
-		fmt.Println(string(respBody))
-
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(respBody)
+		h.log.Info("Request to bind an unsorted call successfully")
+		utils.SendResponse(w, resp)
 	}
 }
 
 func (h *appHandlers) AddUnsorted() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
+		h.log.Info("Request to create a record in the unsorted list")
 
-		var jsonData []map[string]interface{}
-		err := json.Unmarshal(body, &jsonData)
-		jsonData[0]["metadata"].(map[string]interface{})["call_responsible"] = "78123839300"
-		jsonData[0]["metadata"].(map[string]interface{})["phone"] = "79211352609"
-		jsonData[0]["metadata"].(map[string]interface{})["service_code"] = "bl_vats" // TODO: Вынести в Config
-		//delete(jsonData[0]["metadata"].(map[string]interface{}), "from")
-
-		newBody, _ := json.Marshal(jsonData)
-		fmt.Println(string(newBody))
-
-		token := r.Header.Get("Authorization")
-		req, err := http.NewRequest("POST", "https://mmvamobizneslinecom.amocrm.ru/api/v4/leads/unsorted/sip", bytes.NewBuffer(newBody))
+		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			slog.Error("Error creating request", err)
+			h.log.Error("Error reading body", zap.Error(err))
+			http.Error(w, "Error reading body", http.StatusBadRequest)
+			return
 		}
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", token)
+		defer r.Body.Close()
+		h.log.Debug("Body", zap.ByteString("body", body))
 
-		resp, err := http.DefaultClient.Do(req)
+		h.log.Debug("Start unmarshalling body in to map")
+		var jsonData []utils.AnyMap
+		err = json.Unmarshal(body, &jsonData)
 		if err != nil {
-			slog.Error("Error sending request", err)
+			h.log.Error("Error unmarshalling body", zap.Error(err))
+			http.Error(w, "Error unmarshalling body", http.StatusBadRequest)
+			return
 		}
-		defer resp.Body.Close()
+		h.log.Debug("Unmarshalling body in to map successfully")
 
-		respBody, _ := io.ReadAll(resp.Body)
-		fmt.Println(string(respBody))
-		w.WriteHeader(resp.StatusCode)
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(respBody)
+		jsonData[0]["metadata"].(utils.AnyMap)["call_responsible"] = "78123839300" // TODO: Проверить, как надо правильно
+		jsonData[0]["metadata"].(utils.AnyMap)["phone"] = "79211352609"            // TODO: Проверить, как надо правильно
+		jsonData[0]["metadata"].(utils.AnyMap)["service_code"] = h.serviceCode
+
+		h.log.Debug("Marshalling newBody")
+		newBody, err := json.Marshal(jsonData)
+		if err != nil {
+			h.log.Error("Error marshalling newBody", zap.Error(err))
+			http.Error(w, "Error marshalling newBody", http.StatusBadRequest)
+			return
+		}
+		h.log.Debug("New body: ", zap.ByteString("body", newBody))
+
+		url := fmt.Sprintf("https:/%s", r.URL.Path)
+		resp := utils.MakeRequest(r, h.client, http.MethodPost, url, newBody)
+
+		h.log.Info("Request to create a record in the unsorted list successfully")
+		utils.SendResponse(w, resp)
 
 	}
 }
 
 func (h *appHandlers) CreateCallEvents() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		h.log.Info("Request to create a call event")
 		phoneNumber := r.FormValue("add[0][phone_number]")
 		eventType := r.FormValue("add[0][type]")
-		users := "12646090" //r.FormValue("add[0][users][0]") // TODO: Поставить ID из запроса
+		users := r.FormValue("add[0][users][0]")
 
-		fmt.Println("Call Event Type: " + eventType)
-		fmt.Println("Call Users: " + users)
-		fmt.Println("Call Phone: " + phoneNumber)
+		h.log.Debug("Call Event Type: " + eventType)
+		h.log.Debug("Call Users: " + users)
+		h.log.Debug("Call Phone: " + phoneNumber)
 
-		type Item map[string]any
-
-		body := Item{
-			"add": []Item{
+		body := utils.AnyMap{
+			"add": []utils.AnyMap{
 				{
 					"type":         eventType,
 					"users":        users,
@@ -301,88 +279,54 @@ func (h *appHandlers) CreateCallEvents() http.HandlerFunc {
 			},
 		}
 
+		h.log.Debug("Marshalling newBody")
 		jsonData, err := json.Marshal(body)
 		if err != nil {
-			slog.Error("Error marshalling body")
+			h.log.Error("Error marshalling newBody", zap.Error(err))
+			http.Error(w, "Error marshalling newBody", http.StatusBadRequest)
+			return
 		}
+		h.log.Debug("New body: ", zap.ByteString("body", jsonData))
 
-		token := r.Header.Get("Authorization")
-		req, err := http.NewRequest("POST", "https://mmvamobizneslinecom.amocrm.ru/api/v2/events", bytes.NewBuffer(jsonData))
-		if err != nil {
-			slog.Error("Error creating new request")
-		}
+		h.log.Debug("Send request to CRM")
+		url := fmt.Sprintf("https:/%s", r.URL.Path)
+		resp := utils.MakeRequest(r, h.client, http.MethodPost, url, jsonData)
+		h.log.Debug("Response body", zap.ByteString("body", resp.Body))
 
-		req.Header.Set("Authorization", token)
-		req.Header.Set("Content-Type", "application/json")
-
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			slog.Error("Error creating new request")
-		}
-		defer resp.Body.Close()
-
-		respBody, err := io.ReadAll(resp.Body)
-		if err != nil {
-			slog.Error("Error creating new request")
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusAccepted)
-		w.Write(respBody)
-
+		h.log.Info("Request to create a call event successfully")
+		utils.SendResponse(w, resp)
 	}
 }
 
-func (h *appHandlers) CreateCompanies() http.HandlerFunc {
+func (h *appHandlers) GetCompanies() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		token := r.Header.Get("Authorization")
+		h.log.Info("Request to get companies from crm")
 
-		req, err := http.NewRequest("GET", "https://mmvamobizneslinecom.amocrm.ru/api/v4/companies?limit=100&page=1", nil)
-		req.Header.Set("Authorization", token)
-		req.Header.Set("Content-Type", "application/json")
-		req.URL.Query().Set("limit", "100") // TODO: Подставить значения из request url
-		req.URL.Query().Set("page", "1")    // TODO: Подставить значения из request url
+		h.log.Debug("Send request to CRM")
+		url := fmt.Sprintf("https:/%s?limit=%s&page=%s", r.URL.Path, r.URL.Query().Get("limit"), r.URL.Query().Get("page"))
+		resp := utils.MakeRequest(r, h.client, http.MethodGet, url, nil)
+		h.log.Debug("Response body", zap.ByteString("body", resp.Body))
 
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			slog.Error("Error getting companies")
-			return
-		}
-		fmt.Println(resp)
-
-		newBody, _ := io.ReadAll(resp.Body)
-		fmt.Println(string(newBody))
-		w.WriteHeader(resp.StatusCode)
-		w.Write(newBody)
+		h.log.Info("Request to get companies from crm successfully")
+		utils.SendResponse(w, resp)
 	}
 }
 
 func (h *appHandlers) GetContacts() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		token := r.Header.Get("Authorization")
+		h.log.Info("Request to get contacts from crm")
 
-		req, err := http.NewRequest("GET", "https://mmvamobizneslinecom.amocrm.ru/api/v4/contacts?limit=100&page=1", nil)
-		req.Header.Set("Authorization", token)
-		req.Header.Set("Content-Type", "application/json")
-		req.URL.Query().Set("limit", "100") // TODO: Подставить значения из request url
-		req.URL.Query().Set("page", "1")    // TODO: Подставить значения из request url
+		h.log.Debug("Send request to CRM")
+		url := fmt.Sprintf("https:/%s?limit=%s&page=%s", r.URL.Path, r.URL.Query().Get("limit"), r.URL.Query().Get("page"))
+		resp := utils.MakeRequest(r, h.client, http.MethodGet, url, nil)
+		h.log.Debug("Response body", zap.ByteString("body", resp.Body))
 
-		fmt.Println("Готовый URL: ", req.URL)
-
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			slog.Error("Error creating contacts")
-			return
-		}
-		fmt.Println(resp)
-
-		newBody, _ := io.ReadAll(resp.Body)
-		fmt.Println(string(newBody))
-		w.WriteHeader(resp.StatusCode)
-		w.Write(newBody)
+		h.log.Info("Request to get contacts from crm successfully")
+		utils.SendResponse(w, resp)
 	}
 }
 
+// TODO: Переделать
 func (h *appHandlers) GetToken() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		slog.Info("Получен запрос на получение токенов")
@@ -403,7 +347,7 @@ func (h *appHandlers) GetToken() http.HandlerFunc {
 			temp[items[0]] = items[1]
 		}
 
-		temp["redirect_uri"] = "https://78ac-46-249-44-245.ngrok-free.app/callback/amo"
+		temp["redirect_uri"] = fmt.Sprintf("https://%s/callback/amo", h.serverHost)
 		// TODO: Подумать, как сделать так, чтобы это значение парсилось и куда то выдавалось и
 		//		не приходилось ручками доставать из строки запроса в браузере
 
@@ -425,42 +369,45 @@ func (h *appHandlers) GetToken() http.HandlerFunc {
 
 func (h *appHandlers) EndCall() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		h.log.Info("Request to end call from crm")
+
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			slog.Error("Error reading body")
+			h.log.Error("Error reading body", zap.Error(err))
+			http.Error(w, "Error reading body", http.StatusBadRequest)
 			return
 		}
+		defer r.Body.Close()
+		h.log.Debug("Body", zap.ByteString("body", body))
 		fmt.Println("Запрос, что звонок завершился: " + string(body))
 
-		var jsonData []map[string]interface{}
+		h.log.Debug("Start unmarshalling body in to map")
+		var jsonData []utils.AnyMap
 		err = json.Unmarshal(body, &jsonData)
+		if err != nil {
+			h.log.Error("Error unmarshalling body", zap.Error(err))
+			http.Error(w, "Error unmarshalling body", http.StatusBadRequest)
+			return
+		}
+		h.log.Debug("Unmarshalling body in to map successfully")
+
 		// TODO: Проверить, какой ID приходит
 		jsonData[0]["created_by"] = 12646090
-		newBody, _ := json.Marshal(jsonData)
-		fmt.Println(jsonData)
 
-		req, err := http.NewRequest("POST", "https://mmvamobizneslinecom.amocrm.ru/api/v4/calls", bytes.NewBuffer(newBody))
+		h.log.Debug("Marshalling newBody")
+		newBody, err := json.Marshal(jsonData)
 		if err != nil {
-			slog.Error("Error creating new request")
+			h.log.Error("Error marshalling newBody", zap.Error(err))
+			http.Error(w, "Error marshalling newBody", http.StatusBadRequest)
+			return
 		}
+		h.log.Debug("New body: ", zap.ByteString("body", newBody))
 
-		token := r.Header.Get("Authorization")
-		req.Header.Set("Authorization", token)
-		req.Header.Set("Content-Type", "application/json")
-		if err != nil {
-			slog.Error("Error creating new request")
-		}
+		url := fmt.Sprintf("https:/%s", r.URL.Path)
+		resp := utils.MakeRequest(r, h.client, http.MethodPost, url, newBody)
 
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			slog.Error("Error creating new request")
-		}
-		respBody, _ := io.ReadAll(resp.Body)
-		fmt.Println(string(respBody))
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(202)
-		w.Write(respBody)
-		return
+		h.log.Info("Request to end call from crm successfully")
+		utils.SendResponse(w, resp)
+		
 	}
 }

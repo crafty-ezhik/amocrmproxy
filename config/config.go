@@ -6,6 +6,7 @@ import (
 	"time"
 )
 
+// Config - структура содержащая конфигурацию приложения
 type Config struct {
 	Server ServerConfig `json:"server" mapstructure:"server"`
 	RTU    RtuConfig    `json:"rtu" mapstructure:"rtu"`
@@ -14,6 +15,7 @@ type Config struct {
 }
 
 type ServerConfig struct {
+	Host           string        `json:"host" mapstructure:"host"`
 	ServerPort     int           `json:"port" mapstructure:"port"`
 	RequestTimeout time.Duration `json:"request_timeout" mapstructure:"request_timeout"`
 }

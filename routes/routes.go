@@ -30,7 +30,7 @@ func InitRoutes(r *chi.Mux, h handlers.AppHandlers) {
 			r.Post("/calls", h.EndCall())
 			r.Post("/contacts", h.CreateContacts())
 			r.Post("/leads/unsorted/sip", h.AddUnsorted())
-			r.Post("/leads/{id}/link", h.LinkUnsorted())
+			r.Post("/leads/unsorted/{entity_id}/link", h.LinkUnsorted())
 		})
 
 	})
