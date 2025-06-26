@@ -1,0 +1,11 @@
+services:
+  crmproxy:
+    image: crmproxy
+    build:
+      context: .
+    container_name: crmproxy
+    ports:
+      - "8081:8081"
+    restart: "on-failure"
+    volumes:
+      - ./log:/var/log
