@@ -22,7 +22,10 @@ type ServerConfig struct {
 }
 
 type RtuConfig struct {
-	Host string `json:"host" mapstructure:"host"`
+	Host          string `json:"host" mapstructure:"host"`
+	CrmApiPort    int    `json:"crm_api_port" mapstructure:"crm_api_port"`
+	ClientApiPort int    `json:"client_api_port" mapstructure:"client_api_port"`
+	AdminApiPort  int    `json:"admin_api_port" mapstructure:"admin_api_port"`
 }
 
 type CrmConfig struct {
