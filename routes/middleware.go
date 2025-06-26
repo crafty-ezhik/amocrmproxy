@@ -7,11 +7,11 @@ import (
 	"time"
 )
 
-func InitMiddleware(r *chi.Mux) {
+func InitMiddleware(r *chi.Mux, timeout time.Duration) {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.AllowContentType("application/json", "application/x-www-form-urlencoded"))
-	r.Use(middleware.Timeout(10 * time.Second))
+	r.Use(middleware.Timeout(timeout))
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"https://*", "http://*"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
