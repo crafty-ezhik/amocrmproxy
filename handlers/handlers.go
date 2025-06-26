@@ -101,7 +101,7 @@ func (h *appHandlers) CreateContacts() http.HandlerFunc {
 		}
 		h.log.Debug("Body", zap.ByteString("body", body))
 
-		url := fmt.Sprintf("https:/%s", r.URL.Path)
+		url := fmt.Sprintf("https://%s", trimPath(r.URL.Path))
 		h.log.Debug("Request URL", zap.String("url", url))
 
 		resp := utils.MakeRequest(r, h.client, http.MethodPost, url, body)
@@ -270,7 +270,7 @@ func (h *appHandlers) AddUnsorted() http.HandlerFunc {
 		}
 		h.log.Debug("New body: ", zap.ByteString("body", newBody))
 
-		url := fmt.Sprintf("https:/%s", r.URL.Path)
+		url := fmt.Sprintf("https://%s", trimPath(r.URL.Path))
 		resp := utils.MakeRequest(r, h.client, http.MethodPost, url, newBody)
 
 		h.log.Info("Request to create a record in the unsorted list successfully")
@@ -310,7 +310,7 @@ func (h *appHandlers) CreateCallEvents() http.HandlerFunc {
 		h.log.Debug("New body: ", zap.ByteString("body", jsonData))
 
 		h.log.Debug("Send request to CRM")
-		url := fmt.Sprintf("https:/%s", r.URL.Path)
+		url := fmt.Sprintf("https://%s", trimPath(r.URL.Path))
 		resp := utils.MakeRequest(r, h.client, http.MethodPost, url, jsonData)
 		h.log.Debug("Response body", zap.ByteString("body", resp.Body))
 
@@ -324,7 +324,7 @@ func (h *appHandlers) GetCompanies() http.HandlerFunc {
 		h.log.Info("Request to get companies from crm")
 
 		h.log.Debug("Send request to CRM")
-		url := fmt.Sprintf("https:/%s?limit=%s&page=%s", r.URL.Path, r.URL.Query().Get("limit"), r.URL.Query().Get("page"))
+		url := fmt.Sprintf("https://%s?limit=%s&page=%s", trimPath(r.URL.Path), r.URL.Query().Get("limit"), r.URL.Query().Get("page"))
 		resp := utils.MakeRequest(r, h.client, http.MethodGet, url, nil)
 		h.log.Debug("Response body", zap.ByteString("body", resp.Body))
 
@@ -338,7 +338,7 @@ func (h *appHandlers) GetContacts() http.HandlerFunc {
 		h.log.Info("Request to get contacts from crm")
 
 		h.log.Debug("Send request to CRM")
-		url := fmt.Sprintf("https:/%s?limit=%s&page=%s", r.URL.Path, r.URL.Query().Get("limit"), r.URL.Query().Get("page"))
+		url := fmt.Sprintf("https://%s?limit=%s&page=%s", trimPath(r.URL.Path), r.URL.Query().Get("limit"), r.URL.Query().Get("page"))
 		resp := utils.MakeRequest(r, h.client, http.MethodGet, url, nil)
 		h.log.Debug("Response body", zap.ByteString("body", resp.Body))
 
@@ -383,7 +383,7 @@ func (h *appHandlers) GetToken() http.HandlerFunc {
 		h.log.Debug("New body: ", zap.ByteString("body", jsonData))
 
 		h.log.Debug("Make request to get token")
-		url := fmt.Sprintf("https:/%s", r.URL.Path)
+		url := fmt.Sprintf("https://%s", trimPath(r.URL.Path))
 		resp := utils.MakeRequest(r, h.client, http.MethodPost, url, jsonData)
 		h.log.Debug("Response body", zap.ByteString("body", resp.Body))
 
@@ -405,11 +405,17 @@ func (h *appHandlers) EndCall() http.HandlerFunc {
 		defer r.Body.Close()
 		h.log.Debug("Body", zap.ByteString("body", body))
 
-		url := fmt.Sprintf("https:/%s", r.URL.Path)
+		url := fmt.Sprintf("https://%s", trimPath(r.URL.Path))
 		resp := utils.MakeRequest(r, h.client, http.MethodPost, url, body)
 
 		h.log.Info("Request to end call from crm successfully")
 		utils.SendResponse(w, resp)
 
 	}
+}
+
+func trimPath(path string) string {
+	pathSlice := strings.Split(path, "/")
+	pathSlice = pathSlice[2:]
+	return strings.Join(pathSlice, "/")
 }
