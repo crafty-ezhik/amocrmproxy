@@ -11,30 +11,34 @@ import (
 // Принимает chi.Mux и интерфейс handlers.AppHandlers
 func InitRoutes(r *chi.Mux, h handlers.AppHandlers) {
 	// Получение кода авторизации
-	r.Get("/callback/amo", h.GetAuthCode())
+	r.Route("/crmproxy", func(r chi.Router) {
+		r.Get("/callback/amo", h.GetAuthCode())
 
-	r.Route("/{crm_address}", func(r chi.Router) {
-		// Добавление адреса crm системы в контекст
-		r.Use(h.AddAddressToCtx)
+		r.Route("/{crm_address}", func(r chi.Router) {
+			// Добавление адреса crm системы в контекст
 
-		// Получение токенов
-		r.Post("/oauth2/access_token", h.GetToken())
+			r.Use(h.AddAddressToCtx)
 
-		// Отправка уведомления о звонке
-		r.Post("/api/v2/events", h.CreateCallEvents())
+			// Получение токенов
+			r.Post("/oauth2/access_token", h.GetToken())
 
-		// Получение и создание пользователей в РТУ Сател
-		r.Post("/user", h.CreateUserInRTU())
-		r.Get("/user", h.GetUserFromRTU())
+			// Отправка уведомления о звонке
+			r.Post("/api/v2/events", h.CreateCallEvents())
 
-		r.Route("/api/v4", func(r chi.Router) {
-			r.Get("/contacts", h.GetContacts())
-			r.Get("/companies", h.GetCompanies())
-			r.Post("/calls", h.EndCall())
-			r.Post("/contacts", h.CreateContacts())
-			r.Post("/leads/unsorted/sip", h.AddUnsorted())
-			r.Post("/leads/{entity_id}/link", h.LinkUnsorted())
+			// Получение и создание пользователей в РТУ Сател
+			r.Post("/user", h.CreateUserInRTU())
+			r.Get("/user", h.GetUserFromRTU())
+
+			r.Route("/api/v4", func(r chi.Router) {
+				r.Get("/contacts", h.GetContacts())
+				r.Get("/companies", h.GetCompanies())
+				r.Post("/calls", h.EndCall())
+				r.Post("/contacts", h.CreateContacts())
+				r.Post("/leads/unsorted/sip", h.AddUnsorted())
+				r.Post("/leads/{entity_id}/link", h.LinkUnsorted())
+			})
+
 		})
-
 	})
+
 }
