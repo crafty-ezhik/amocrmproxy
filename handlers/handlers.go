@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"github.com/crafty-ezhik/amocrmproxy/config"
 	"github.com/crafty-ezhik/amocrmproxy/email"
@@ -34,14 +36,17 @@ type AppHandlers interface {
 }
 
 type appHandlers struct {
-	log            *zap.Logger
-	client         *http.Client
-	insecureClient *http.Client
-	rtuAddr        string
-	serviceCode    string
-	serverHost     string
-	emailRecipient string
-	ec             *email.EmailClient
+	log              *zap.Logger
+	client           *http.Client
+	insecureClient   *http.Client
+	rtuCrmApiPort    int
+	rtuClientApiPort int
+	rtuAdminApiPort  int
+	rtuAddr          string
+	serviceCode      string
+	serverHost       string
+	emailRecipient   string
+	ec               *email.EmailClient
 }
 
 func NewAppHandlers(log *zap.Logger, cfg *config.Config, ec *email.EmailClient) AppHandlers {
@@ -55,11 +60,14 @@ func NewAppHandlers(log *zap.Logger, cfg *config.Config, ec *email.EmailClient) 
 				},
 			},
 		},
-		rtuAddr:        cfg.RTU.Host,
-		serviceCode:    cfg.CRM.ServiceCode,
-		serverHost:     cfg.Server.Host,
-		emailRecipient: cfg.Email.Recipient,
-		ec:             ec,
+		rtuAddr:          cfg.RTU.Host,
+		rtuAdminApiPort:  cfg.RTU.AdminApiPort,
+		rtuCrmApiPort:    cfg.RTU.CrmApiPort,
+		rtuClientApiPort: cfg.RTU.ClientApiPort,
+		serviceCode:      cfg.CRM.ServiceCode,
+		serverHost:       cfg.Server.Host,
+		emailRecipient:   cfg.Email.Recipient,
+		ec:               ec,
 	}
 	return handlers
 }
@@ -116,7 +124,7 @@ func (h *appHandlers) OrderingCallback() http.HandlerFunc {
 
 		// Get user info from RTU
 		h.log.Debug("Sending request to RTU for get user info")
-		url := fmt.Sprintf("https://%s/user?user_id=%s", h.rtuAddr, userID)
+		url := fmt.Sprintf("https://%s:%d/user?user_id=%s", h.rtuAddr, h.rtuCrmApiPort, userID)
 		resp := utils.MakeRequest(r, h.insecureClient, http.MethodGet, url, nil)
 		h.log.Debug("Response body", zap.ByteString("body", resp.Body))
 
@@ -143,7 +151,7 @@ func (h *appHandlers) OrderingCallback() http.HandlerFunc {
 
 		// Sending request to creating ordering callback
 		h.log.Debug("Sending request to creating ordering callback")
-		status, err := sendOrderingCallbackRequest(destNumber, srcNumber, userLogin, userPassword, domain)
+		status, err := h.sendOrderingCallbackRequest(destNumber, srcNumber, userLogin, userPassword, domain)
 		if err != nil {
 			h.log.Error("Error getting user info", zap.Error(err))
 			http.Error(w, "Error getting user info", http.StatusBadRequest)
@@ -165,16 +173,6 @@ func (h *appHandlers) OrderingCallback() http.HandlerFunc {
 			Error:  nil,
 		})
 	}
-}
-
-func sendOrderingCallbackRequest(destNumber, srcNumber, userLogin, userPassword, domain string) (int, error) {
-	// Инициализировать структуры
-
-	// Сделать запрос
-
-	// Отдать ответ
-
-	return http.StatusOK, nil
 }
 
 func (h *appHandlers) GetAuthCode() http.HandlerFunc {
@@ -269,7 +267,7 @@ func (h *appHandlers) CreateUserInRTU() http.HandlerFunc {
 		h.log.Debug("New body for RTU", zap.ByteString("body", newBody))
 
 		h.log.Debug("Send request to RTU")
-		url := fmt.Sprintf("https://%s/user", h.rtuAddr)
+		url := fmt.Sprintf("https://%s:%d/user", h.rtuAddr, h.rtuCrmApiPort)
 		resp := utils.MakeRequest(r, h.client, http.MethodPost, url, newBody)
 		h.log.Debug("Response body", zap.ByteString("body", resp.Body))
 
@@ -285,7 +283,7 @@ func (h *appHandlers) GetUserFromRTU() http.HandlerFunc {
 		userID := r.URL.Query().Get("user_id")
 		if userID != "" {
 			h.log.Debug("Send request to RTU")
-			url := fmt.Sprintf("https://%s/user?user_id=%s", h.rtuAddr, userID)
+			url := fmt.Sprintf("https://%s:%d/user?user_id=%s", h.rtuAddr, h.rtuCrmApiPort, userID)
 			resp := utils.MakeRequest(r, h.insecureClient, http.MethodGet, url, nil)
 			h.log.Debug("Response body", zap.ByteString("body", resp.Body))
 			utils.SendResponse(w, resp)
@@ -293,7 +291,7 @@ func (h *appHandlers) GetUserFromRTU() http.HandlerFunc {
 		}
 
 		h.log.Debug("Send request to RTU")
-		url := fmt.Sprintf("https://%s/user", h.rtuAddr)
+		url := fmt.Sprintf("https://%s:%d/user", h.rtuAddr, h.rtuCrmApiPort)
 		resp := utils.MakeRequest(r, h.insecureClient, http.MethodGet, url, nil)
 		h.log.Debug("Response body", zap.ByteString("body", resp.Body))
 		utils.SendResponse(w, resp)
@@ -528,6 +526,80 @@ func (h *appHandlers) EndCall() http.HandlerFunc {
 		utils.SendResponse(w, resp)
 
 	}
+}
+
+func (h *appHandlers) sendOrderingCallbackRequest(destNumber, srcNumber, userLogin, userPassword, domain string) (int, error) {
+	// Инициализировать структуры
+	type Authorize struct {
+		Login    string `xml:"login"`
+		Password string `xml:"password"`
+		Domain   string `xml:"domain"`
+	}
+
+	type Item struct {
+		Src                   string `xml:"src"`
+		Dst                   string `xml:"dst"`
+		AttemptCount          int    `xml:"attempt_count"`
+		AttemptInterval       int    `xml:"attempt_interval"`
+		AttemptInputCount     int    `xml:"attempt_input_count"`
+		AttemptInputTimeout   int    `xml:"attempt_input_timeout"`
+		NeedSrcAuthentication bool   `xml:"need_src_authentication"`
+	}
+
+	type Command struct {
+		Name  string `xml:"name,attr"`
+		Table string `xml:"table,attr"`
+		Item  Item   `xml:"item"`
+	}
+
+	type Commands struct {
+		XMLName   xml.Name  `xml:"commands"`
+		Authorize Authorize `xml:"authorize"`
+		Command   Command   `xml:"command"`
+	}
+
+	body, err := xml.Marshal(Commands{
+		Authorize: Authorize{
+			Login:    userLogin,
+			Password: userPassword,
+			Domain:   domain,
+		},
+		Command: Command{
+			Name:  "Create",
+			Table: "CallBack",
+			Item: Item{
+				Src:                   destNumber,
+				Dst:                   srcNumber,
+				AttemptCount:          3,
+				AttemptInterval:       1,
+				AttemptInputCount:     2,
+				AttemptInputTimeout:   2,
+				NeedSrcAuthentication: false,
+			},
+		},
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	// Сделать запрос
+	url := fmt.Sprintf("https://%s:%d/mobile_request/get.aspx", h.rtuAddr, h.rtuClientApiPort)
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+
+	resp, err := h.insecureClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, err
+	}
+	h.log.Debug("Response body", zap.ByteString("body", respBody))
+
+	// Отдать ответ
+	return resp.StatusCode, nil
 }
 
 func trimPath(path string) string {
