@@ -28,7 +28,6 @@ func InitRoutes(r *chi.Mux, h handlers.AppHandlers) {
 		r.Get("/user", h.GetUserFromRTU())
 
 		r.Route("/api/v4", func(r chi.Router) {
-			r.Get("/test/{id}/lonk", h.TestHandler())
 			r.Get("/contacts", h.GetContacts())
 			r.Get("/companies", h.GetCompanies())
 			r.Post("/calls", h.EndCall())
