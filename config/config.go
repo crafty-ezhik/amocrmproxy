@@ -11,6 +11,7 @@ type Config struct {
 	Server ServerConfig `json:"server" mapstructure:"server"`
 	RTU    RtuConfig    `json:"rtu" mapstructure:"rtu"`
 	CRM    CrmConfig    `json:"amo_crm" mapstructure:"amo_crm"`
+	Email  EmailConfig  `json:"email" mapstructure:"email"`
 	Debug  bool         `json:"debug" mapstructure:"debug"`
 }
 
@@ -26,6 +27,14 @@ type RtuConfig struct {
 
 type CrmConfig struct {
 	ServiceCode string `json:"service_code" mapstructure:"service_code"`
+}
+
+type EmailConfig struct {
+	Host      string `json:"host" mapstructure:"host"`
+	Port      int    `json:"port" mapstructure:"port"`
+	Login     string `json:"login" mapstructure:"login"`
+	Password  string `json:"password" mapstructure:"password"`
+	Recipient string `json:"recipient" mapstructure:"recipient"`
 }
 
 func LoadConfig() *Config {

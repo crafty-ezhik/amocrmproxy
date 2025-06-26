@@ -1,17 +1,16 @@
 package handlers
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"github.com/crafty-ezhik/amocrmproxy/config"
+	"github.com/crafty-ezhik/amocrmproxy/email"
 	"github.com/crafty-ezhik/amocrmproxy/utils"
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 	"io"
-	"log/slog"
 	"net/http"
 	"strings"
 )
@@ -28,9 +27,8 @@ type AppHandlers interface {
 	GetContacts() http.HandlerFunc
 	GetToken() http.HandlerFunc
 	EndCall() http.HandlerFunc
+	GetAuthCode() http.HandlerFunc
 }
-
-// TODO: ДОбавить правильное логирование и оптимизировать методы
 
 type appHandlers struct {
 	log            *zap.Logger
@@ -39,9 +37,11 @@ type appHandlers struct {
 	rtuAddr        string
 	serviceCode    string
 	serverHost     string
+	emailRecipient string
+	ec             *email.EmailClient
 }
 
-func NewAppHandlers(log *zap.Logger, cfg *config.Config) AppHandlers {
+func NewAppHandlers(log *zap.Logger, cfg *config.Config, ec *email.EmailClient) AppHandlers {
 	handlers := &appHandlers{
 		log:    log,
 		client: http.DefaultClient,
@@ -52,14 +52,36 @@ func NewAppHandlers(log *zap.Logger, cfg *config.Config) AppHandlers {
 				},
 			},
 		},
-		rtuAddr:     cfg.RTU.Host,
-		serviceCode: cfg.CRM.ServiceCode,
-		serverHost:  cfg.Server.Host,
+		rtuAddr:        cfg.RTU.Host,
+		serviceCode:    cfg.CRM.ServiceCode,
+		serverHost:     cfg.Server.Host,
+		emailRecipient: cfg.Email.Recipient,
+		ec:             ec,
 	}
 	return handlers
 }
 
-// TODO: Скорее всего надо удалить, ибо домен я передаю другим образом через r.URL.Path
+func (h *appHandlers) GetAuthCode() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// TODO: На данный момент заглушка. При реализации ЛК, надо будет видоизменить
+		code := r.URL.Query().Get("code")
+		refer := r.URL.Query().Get("referer")
+
+		//отправка на email
+		msg := fmt.Sprintf("Code: %s\nClient account: %s", code, refer)
+		go func() {
+			err := h.ec.SendEmailWithTLS(h.emailRecipient, msg)
+			if err != nil {
+				h.log.Error("Error", zap.Error(err))
+				return
+			}
+		}()
+
+		url := fmt.Sprintf("https://%s/amo-market#category-installed", refer)
+		http.Redirect(w, r, url, http.StatusPermanentRedirect)
+	}
+}
+
 func (h *appHandlers) AddAddressToCtx(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		crmAddress := chi.URLParam(r, "crm_address")
@@ -204,7 +226,8 @@ func (h *appHandlers) LinkUnsorted() http.HandlerFunc {
 		h.log.Debug("New body: ", zap.ByteString("body", bytesBody))
 
 		h.log.Debug("Send request to CRM")
-		url := fmt.Sprintf("https:/%s", r.URL.Path)
+		amoHost := r.Context().Value("crm_address").(string)
+		url := fmt.Sprintf("https://%s/api/v4/leads/unsorted/%s/link", amoHost, entityID)
 		resp := utils.MakeRequest(r, h.client, http.MethodPost, url, bytesBody)
 		h.log.Debug("Response body", zap.ByteString("body", resp.Body))
 
@@ -236,9 +259,7 @@ func (h *appHandlers) AddUnsorted() http.HandlerFunc {
 		}
 		h.log.Debug("Unmarshalling body in to map successfully")
 
-		jsonData[0]["metadata"].(utils.AnyMap)["call_responsible"] = "78123839300" // TODO: Проверить, как надо правильно
-		jsonData[0]["metadata"].(utils.AnyMap)["phone"] = "79211352609"            // TODO: Проверить, как надо правильно
-		jsonData[0]["metadata"].(utils.AnyMap)["service_code"] = h.serviceCode
+		jsonData[0]["metadata"].(map[string]any)["service_code"] = h.serviceCode
 
 		h.log.Debug("Marshalling newBody")
 		newBody, err := json.Marshal(jsonData)
@@ -326,16 +347,19 @@ func (h *appHandlers) GetContacts() http.HandlerFunc {
 	}
 }
 
-// TODO: Переделать
 func (h *appHandlers) GetToken() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		slog.Info("Получен запрос на получение токенов")
-		//http.Redirect(w, r, "mmvamobizneslinecom.amocrm.ru/oauth2/access_token", 302)
+		h.log.Info("Request to get token from crm")
+
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			slog.Error("Error reading body")
+			h.log.Error("Error reading body", zap.Error(err))
+			http.Error(w, "Error reading body", http.StatusBadRequest)
 			return
 		}
+		defer r.Body.Close()
+		h.log.Debug("Body", zap.ByteString("body", body))
+
 		newBody := strings.Split(string(body), "&")
 		temp := make(map[string]string)
 
@@ -348,22 +372,23 @@ func (h *appHandlers) GetToken() http.HandlerFunc {
 		}
 
 		temp["redirect_uri"] = fmt.Sprintf("https://%s/callback/amo", h.serverHost)
-		// TODO: Подумать, как сделать так, чтобы это значение парсилось и куда то выдавалось и
-		//		не приходилось ручками доставать из строки запроса в браузере
 
+		h.log.Debug("Marshalling newBody")
 		jsonData, err := json.Marshal(temp)
-
-		resp, err := http.Post("https://mmvamobizneslinecom.amocrm.ru/oauth2/access_token", "application/json", bytes.NewBuffer(jsonData))
 		if err != nil {
-			slog.Error("Error creating token")
+			h.log.Error("Error marshalling newBody", zap.Error(err))
+			http.Error(w, "Error marshalling newBody", http.StatusBadRequest)
+			return
 		}
+		h.log.Debug("New body: ", zap.ByteString("body", jsonData))
 
-		respBody, _ := io.ReadAll(resp.Body)
-		fmt.Println(string(respBody))
+		h.log.Debug("Make request to get token")
+		url := fmt.Sprintf("https:/%s", r.URL.Path)
+		resp := utils.MakeRequest(r, h.client, http.MethodPost, url, jsonData)
+		h.log.Debug("Response body", zap.ByteString("body", resp.Body))
 
-		w.WriteHeader(200)
-		w.Write(respBody)
-		//fmt.Println("Запрос на получение токенов:" + string(body))
+		h.log.Info("Request to get token from crm send successfully")
+		utils.SendResponse(w, resp)
 	}
 }
 
@@ -379,35 +404,12 @@ func (h *appHandlers) EndCall() http.HandlerFunc {
 		}
 		defer r.Body.Close()
 		h.log.Debug("Body", zap.ByteString("body", body))
-		fmt.Println("Запрос, что звонок завершился: " + string(body))
-
-		h.log.Debug("Start unmarshalling body in to map")
-		var jsonData []utils.AnyMap
-		err = json.Unmarshal(body, &jsonData)
-		if err != nil {
-			h.log.Error("Error unmarshalling body", zap.Error(err))
-			http.Error(w, "Error unmarshalling body", http.StatusBadRequest)
-			return
-		}
-		h.log.Debug("Unmarshalling body in to map successfully")
-
-		// TODO: Проверить, какой ID приходит
-		jsonData[0]["created_by"] = 12646090
-
-		h.log.Debug("Marshalling newBody")
-		newBody, err := json.Marshal(jsonData)
-		if err != nil {
-			h.log.Error("Error marshalling newBody", zap.Error(err))
-			http.Error(w, "Error marshalling newBody", http.StatusBadRequest)
-			return
-		}
-		h.log.Debug("New body: ", zap.ByteString("body", newBody))
 
 		url := fmt.Sprintf("https:/%s", r.URL.Path)
-		resp := utils.MakeRequest(r, h.client, http.MethodPost, url, newBody)
+		resp := utils.MakeRequest(r, h.client, http.MethodPost, url, body)
 
 		h.log.Info("Request to end call from crm successfully")
 		utils.SendResponse(w, resp)
-		
+
 	}
 }
