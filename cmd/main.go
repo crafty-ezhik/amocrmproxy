@@ -14,8 +14,8 @@ import (
 func main() {
 	cfg := config.LoadConfig()
 	log := logger.NewLogger(cfg.Debug)
-	fmt.Printf("%#v\n", cfg)
 
+	// Инициализация хендлера
 	appHandlers := handlers.NewAppHandlers(log, cfg)
 
 	// Инициализация роутера, Middleware и маршрутов
@@ -23,15 +23,17 @@ func main() {
 	routes.InitMiddleware(router, cfg.Server.RequestTimeout)
 	routes.InitRoutes(router, appHandlers)
 
+	// Конфигурирование сервера
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.Server.ServerPort),
 		Handler: router,
 	}
 
-	log.Info("Starting proxy server on port: " + strconv.Itoa(cfg.Server.ServerPort))
+	// Старт сервера
 	err := server.ListenAndServe()
 	if err != nil {
 		log.Error("Error starting server")
 	}
+	log.Info("Starting proxy server on port: " + strconv.Itoa(cfg.Server.ServerPort))
 
 }

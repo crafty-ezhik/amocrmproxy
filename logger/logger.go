@@ -7,6 +7,12 @@ import (
 	"os"
 )
 
+// NewLogger - возвращает указатель на экземпляр zap.Logger. Логгер выводит сообщения в файл и консоль
+// Изменение уровня логирования через параметр debug.
+// Также по-умолчанию включена ротация логов:
+//   - размер 10Мб,
+//   - хранение 14 дней,
+//   - хранит по 3 файла, далее перезапись
 func NewLogger(debug bool) *zap.Logger {
 	level := zap.InfoLevel
 	if debug {
@@ -21,7 +27,7 @@ func NewLogger(debug bool) *zap.Logger {
 		Filename:   "./log/app.log",
 		MaxSize:    10, // мегабайт
 		MaxBackups: 3,
-		MaxAge:     30, // дней
+		MaxAge:     14, // дней
 		Compress:   true,
 	}
 

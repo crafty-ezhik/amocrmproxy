@@ -29,6 +29,8 @@ type AppHandlers interface {
 	EndCall() http.HandlerFunc
 }
 
+// TODO: ДОбавить правильное логирование и оптимизировать методы
+
 type appHandlers struct {
 	log            *zap.Logger
 	client         *http.Client

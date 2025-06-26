@@ -5,6 +5,10 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+// InitRoutes - производит инициализацию маршрутов.
+// Также добавляет middleware, который добавляет в контекст запроса такой параметр пути, как crm_address
+//
+// Принимает chi.Mux и интерфейс handlers.AppHandlers
 func InitRoutes(r *chi.Mux, h handlers.AppHandlers) {
 	r.Route("/{crm_address}", func(r chi.Router) {
 		// Добавление адреса crm системы в контекст
