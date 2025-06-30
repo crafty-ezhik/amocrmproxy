@@ -11,7 +11,6 @@ import (
 	"github.com/crafty-ezhik/amocrmproxy/config"
 	"github.com/crafty-ezhik/amocrmproxy/email"
 	"github.com/crafty-ezhik/amocrmproxy/utils"
-	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 	"io"
 	"net/http"
@@ -268,7 +267,7 @@ func (h *appHandlers) CreateUserInRTU() http.HandlerFunc {
 
 		h.log.Debug("Send request to RTU")
 		url := fmt.Sprintf("https://%s:%d/user", h.rtuAddr, h.rtuCrmApiPort)
-		resp := utils.MakeRequest(r, h.client, http.MethodPost, url, newBody)
+		resp := utils.MakeRequest(r, h.insecureClient, http.MethodPost, url, newBody)
 		h.log.Debug("Response body", zap.ByteString("body", resp.Body))
 
 		h.log.Info("Creating user in RTU successfully")
