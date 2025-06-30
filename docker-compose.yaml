@@ -8,4 +8,4 @@ services:
       - "8081:8081"
     restart: "on-failure"
     volumes:
-      - ${LOG_PATH}:/var/log
+      - ${LOG_PATH}: /log
