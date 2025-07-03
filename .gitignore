@@ -33,3 +33,4 @@ go.work.sum
 .idea
 /log/
 config.json
+vendor
